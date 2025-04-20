@@ -29,16 +29,16 @@ class FileUpload extends Component {
             return;
           }
 
-          // Format data: ensure numeric values are parsed as numbers
+          
           const formattedData = data.map(d => {
             const formattedRow = { Date: d.Date };
             requiredColumns.slice(1).forEach(model => {
-              formattedRow[model] = +d[model]; // Convert to number
+              formattedRow[model] = +d[model]; 
             });
             return formattedRow;
           });
 
-          // Pass the formatted data to parent component
+          
           this.props.set_data(formattedData);
           this.setState({ error: null });
           URL.revokeObjectURL(url);

@@ -127,7 +127,7 @@ class App extends Component {
   }
 
   renderLegend = () => {
-    // Define model colors as specified in the assignment
+   
     const modelColors = {
       "GPT-4": "#e41a1c",
       "Gemini": "#377eb8",
@@ -136,31 +136,31 @@ class App extends Component {
       "LLaMA-3.1": "#ff7f00"
     };
 
-    // Order of models for legend
+    
     const modelOrder = ["LLaMA-3.1", "Claude", "PaLM-2", "Gemini", "GPT-4"];
 
     const legendContainer = d3.select(this.legendRef.current);
-    legendContainer.selectAll("*").remove(); // Clear previous content
+    legendContainer.selectAll("*").remove(); 
 
-    // Create legend items
+   
     const legendItems = legendContainer.selectAll(".legend-item")
       .data(modelOrder)
       .enter()
       .append("div")
       .attr("class", "legend-item");
 
-    // Add color box
+   
     legendItems.append("div")
       .attr("class", "legend-color")
       .style("background-color", d => modelColors[d]);
 
-    // Add label
+    
     legendItems.append("span")
       .text(d => d);
   }
 
   showTooltip = (event, model, data) => {
-    // Define model colors as specified in the assignment
+   
     const modelColors = {
       "GPT-4": "#e41a1c",
       "Gemini": "#377eb8",
@@ -171,19 +171,19 @@ class App extends Component {
 
     const tooltip = d3.select(".tooltip");
     
-    // Show tooltip
+    
     tooltip
       .style("opacity", 1)
       .style("display", "block");
     
-    // Clear previous tooltip content
+    
     tooltip.html("");
     
-    // Add model name as title
+    
     tooltip.append("h3")
       .text(`${model} Hashtag Usage`);
     
-    // Create mini bar chart
+   
     const margin = { top: 10, right: 10, bottom: 30, left: 40 };
     const width = 280 - margin.left - margin.right;
     const height = 180 - margin.top - margin.bottom;
@@ -194,13 +194,13 @@ class App extends Component {
       .append("g")
       .attr("transform", `translate(${margin.left},${margin.top})`);
     
-    // Extract data for the selected model
+    
     const modelData = data.map(d => ({
       date: d.Date,
       value: +d[model]
     }));
     
-    // Create scales
+    
     const x = d3.scaleBand()
       .domain(modelData.map(d => d.date))
       .range([0, width])
@@ -211,7 +211,7 @@ class App extends Component {
       .nice()
       .range([height, 0]);
     
-    // Add X axis
+    
     svg.append("g")
       .attr("transform", `translate(0,${height})`)
       .call(d3.axisBottom(x))
@@ -221,11 +221,11 @@ class App extends Component {
       .attr("dy", ".15em")
       .attr("transform", "rotate(-45)");
     
-    // Add Y axis
+    
     svg.append("g")
       .call(d3.axisLeft(y));
     
-    // Add bars
+    
     svg.selectAll(".bar")
       .data(modelData)
       .join("rect")
@@ -236,41 +236,41 @@ class App extends Component {
       .attr("height", d => height - y(d.value))
       .attr("fill", modelColors[model]);
     
-    // Update tooltip position
+    
     this.updateTooltipPosition(event);
   }
 
   updateTooltipPosition = (event) => {
     const tooltip = d3.select(".tooltip");
     
-    // Get tooltip dimensions
+   
     const tooltipNode = tooltip.node();
     const tooltipWidth = tooltipNode.offsetWidth;
     const tooltipHeight = tooltipNode.offsetHeight;
     
-    // Get page dimensions
+    
     const pageWidth = window.innerWidth;
     const pageHeight = window.innerHeight;
     
-    // Calculate position to ensure tooltip stays in viewport
+    
     let left = event.pageX + 10;
     let top = event.pageY + 10;
     
-    // Adjust if tooltip would go off right edge
+   
     if (left + tooltipWidth > pageWidth - 10) {
       left = event.pageX - tooltipWidth - 10;
     }
     
-    // Adjust if tooltip would go off bottom edge
+   
     if (top + tooltipHeight > pageHeight - 10) {
       top = event.pageY - tooltipHeight - 10;
     }
     
-    // Ensure tooltip doesn't go off left or top edge
+    
     left = Math.max(10, left);
     top = Math.max(10, top);
     
-    // Update tooltip position
+    
     tooltip
       .style("left", left + "px")
       .style("top", top + "px");
