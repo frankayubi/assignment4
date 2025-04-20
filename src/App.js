@@ -8,200 +8,282 @@ class App extends Component {
     super(props);
     this.state = {
       data: [],
-      selected_data: [],
-      sentimentColors: { positive: "green", negative: "red", neutral: "gray" },
-      hoveredDataPoints: [],
       chartRendered: false,
     };
     this.svgRef = React.createRef();
+    this.tooltipRef = React.createRef();
+    this.legendRef = React.createRef();
   }
 
   componentDidUpdate(prevProps, prevState) {
     if (prevState.data !== this.state.data && this.state.data.length > 0 && !this.state.chartRendered) {
-      this.renderChart();
+      this.renderStreamgraph();
+      this.renderLegend();
       this.setState({ chartRendered: true });
     }
   }
 
   set_data = (csv_data) => {
-    this.setState({ data: csv_data, chartRendered: false});
+    this.setState({ data: csv_data, chartRendered: false });
   }
 
-  renderChart = () => {
-    const { data, sentimentColors } = this.state;
-    const margin = { left: 50, right: 150, top: 20, bottom: 50 }; // Increased right margin for legend
-    const width = 600;
-    const height = 400;
-    const innerWidth = width - margin.left - margin.right;
-    const innerHeight = height - margin.top - margin.bottom;
+  renderStreamgraph = () => {
+    const { data } = this.state;
+    const margin = { top: 20, right: 30, bottom: 50, left: 50 };
+    const width = 900 - margin.left - margin.right;
+    const height = 500 - margin.top - margin.bottom;
 
+    // Define model colors as specified in the assignment
+    const modelColors = {
+      "GPT-4": "#e41a1c",
+      "Gemini": "#377eb8",
+      "PaLM-2": "#4daf4a",
+      "Claude": "#984ea3",
+      "LLaMA-3.1": "#ff7f00"
+    };
+
+    // Order of models for stacking (bottom to top)
+    const modelOrder = ["LLaMA-3.1", "Claude", "PaLM-2", "Gemini", "GPT-4"];
+
+    // Create SVG
     const svg = d3.select(this.svgRef.current)
-      .attr("width", width)
-      .attr("height", height);
+      .attr("width", width + margin.left + margin.right)
+      .attr("height", height + margin.top + margin.bottom);
 
     svg.selectAll("*").remove(); // Clear previous content
-
-    if (data.length === 0) return;
-
-    const x = d3.scaleLinear()
-      .domain(d3.extent(data, d => +d["Dimension 1"]))
-      .range([0, innerWidth])
-      .nice();
-
-    const y = d3.scaleLinear()
-      .domain(d3.extent(data, d => +d["Dimension 2"]))
-      .range([innerHeight, 0])
-      .nice();
 
     const g = svg.append("g")
       .attr("transform", `translate(${margin.left}, ${margin.top})`);
 
-    //Axes
-    g.append("g")
-      .attr("transform", `translate(0, ${innerHeight})`)
-      .call(d3.axisBottom(x));
+    if (data.length === 0) return;
 
-    g.append("g")
-      .call(d3.axisLeft(y));
+    // Get dates in order
+    const dates = data.map(d => d.Date);
 
-    //add circles
-    g.selectAll("circle")
-      .data(data)
-      .enter()
-      .append("circle")
-      .attr("cx", d => x(+d["Dimension 1"]))
-      .attr("cy", d => y(+d["Dimension 2"]))
-      .attr("r", 5)
-      .attr("fill", d => sentimentColors[d.PredictedSentiment.toLowerCase()] || "gray")
-      .style("cursor", "pointer")
-      .on("click", (event, d) => {
-        this.handleCircleClick(d);
-      })
+    // Create scales
+    const x = d3.scalePoint()
+      .domain(dates)
+      .range([0, width]);
+
+    const y = d3.scaleLinear()
+      .domain([0, d3.max(data, d => {
+        return d3.sum(modelOrder, model => +d[model]);
+      })])
+      .range([height, 0]);
+
+    // Stack the data
+    const stack = d3.stack()
+      .keys(modelOrder)
+      .value((d, key) => +d[key] || 0);
+
+    const stackedData = stack(data);
+
+    // Create the streamgraph generator
+    const area = d3.area()
+      .x(d => x(d.data.Date))
+      .y0(d => y(d[0]))
+      .y1(d => y(d[1]))
+      .curve(d3.curveCardinal);
+
+    // Add the streamgraph paths
+    g.selectAll(".stream")
+      .data(stackedData)
+      .join("path")
+      .attr("class", "stream")
+      .attr("fill", d => modelColors[d.key])
+      .attr("d", area)
       .on("mouseover", (event, d) => {
-        this.handleCircleMouseOver(event, d, x, y);
+        // Highlight the hovered stream
+        d3.select(event.currentTarget).attr("opacity", 0.8);
+        
+        // Show tooltip with bar chart
+        this.showTooltip(event, d.key, data);
       })
-      .on("mouseout", (event, d) => {
-        this.handleCircleMouseOut(event, d);
+      .on("mousemove", (event) => {
+        // Update tooltip position on mouse move
+        this.updateTooltipPosition(event);
+      })
+      .on("mouseout", (event) => {
+        // Remove highlighting
+        d3.select(event.currentTarget).attr("opacity", 1);
+        
+        // Hide tooltip
+        d3.select(".tooltip").style("opacity", 0);
       });
 
-    //brush
-    const brush = d3.brush()
-      .extent([[0, 0], [innerWidth, innerHeight]])
-      .on("brush", this.handleBrush.bind(this, x, y))
-      .on("end", this.handleBrushEnd.bind(this, x, y));
-
+    // Add X axis
     g.append("g")
-      .call(brush);
+      .attr("transform", `translate(0,${height})`)
+      .call(d3.axisBottom(x))
+      .selectAll("text")
+      .style("text-anchor", "middle");
 
-    // Legend
-    const legend = g.append("g")
-      .attr("transform", `translate(${innerWidth + 20}, 20)`); // Position to the right
-
-    const legendKeys = Object.keys(sentimentColors);
-
-    legendKeys.forEach((key, i) => {
-      legend.append("rect")
-        .attr("x", 0)
-        .attr("y", i * 20)
-        .attr("width", 18)
-        .attr("height", 18)
-        .attr("fill", sentimentColors[key]);
-
-      legend.append("text")
-        .attr("x", 25)
-        .attr("y", i * 20 + 14)
-        .text(key)
-        .style("font-size", "12px");
-    });
-
-  }
-  //Brush function
-  handleBrush(x, y, event) {
-    if (!event.selection) return;
-    const [[x0, y0], [x1, y1]] = event.selection;
-
-    const selectedDataPoints = this.state.data.filter(d => {
-      const cx = x(d["Dimension 1"]);
-      const cy = y(d["Dimension 2"]);
-      return cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1;
-    });
-    this.setState({ hoveredDataPoints: selectedDataPoints });
-  }
-  handleBrushEnd(x, y, event) {
-    if (!event.selection) {
-      this.setState({ hoveredDataPoints: [] });
+    // Create tooltip div if it doesn't exist
+    if (d3.select(".tooltip").empty()) {
+      d3.select("body").append("div")
+        .attr("class", "tooltip")
+        .style("opacity", 0);
     }
   }
 
-  handleCircleMouseOver = (event, d, x, y) => {
-    // add hovered circle into the hoveredDataPoints array
-    this.setState((prevState) => ({
-      hoveredDataPoints: [...prevState.hoveredDataPoints, d],
+  renderLegend = () => {
+    // Define model colors as specified in the assignment
+    const modelColors = {
+      "GPT-4": "#e41a1c",
+      "Gemini": "#377eb8",
+      "PaLM-2": "#4daf4a",
+      "Claude": "#984ea3",
+      "LLaMA-3.1": "#ff7f00"
+    };
+
+    // Order of models for legend
+    const modelOrder = ["LLaMA-3.1", "Claude", "PaLM-2", "Gemini", "GPT-4"];
+
+    const legendContainer = d3.select(this.legendRef.current);
+    legendContainer.selectAll("*").remove(); // Clear previous content
+
+    // Create legend items
+    const legendItems = legendContainer.selectAll(".legend-item")
+      .data(modelOrder)
+      .enter()
+      .append("div")
+      .attr("class", "legend-item");
+
+    // Add color box
+    legendItems.append("div")
+      .attr("class", "legend-color")
+      .style("background-color", d => modelColors[d]);
+
+    // Add label
+    legendItems.append("span")
+      .text(d => d);
+  }
+
+  showTooltip = (event, model, data) => {
+    // Define model colors as specified in the assignment
+    const modelColors = {
+      "GPT-4": "#e41a1c",
+      "Gemini": "#377eb8",
+      "PaLM-2": "#4daf4a",
+      "Claude": "#984ea3",
+      "LLaMA-3.1": "#ff7f00"
+    };
+
+    const tooltip = d3.select(".tooltip");
+    
+    // Show tooltip
+    tooltip
+      .style("opacity", 1)
+      .style("display", "block");
+    
+    // Clear previous tooltip content
+    tooltip.html("");
+    
+    // Add model name as title
+    tooltip.append("h3")
+      .text(`${model} Hashtag Usage`);
+    
+    // Create mini bar chart
+    const margin = { top: 10, right: 10, bottom: 30, left: 40 };
+    const width = 280 - margin.left - margin.right;
+    const height = 180 - margin.top - margin.bottom;
+    
+    const svg = tooltip.append("svg")
+      .attr("width", width + margin.left + margin.right)
+      .attr("height", height + margin.top + margin.bottom)
+      .append("g")
+      .attr("transform", `translate(${margin.left},${margin.top})`);
+    
+    // Extract data for the selected model
+    const modelData = data.map(d => ({
+      date: d.Date,
+      value: +d[model]
     }));
-  };
-  handleCircleMouseOut = (event, d) => {
-    // remove hovered circle from the hoveredDataPoints array
-    this.setState((prevState) => ({
-      hoveredDataPoints: prevState.hoveredDataPoints.filter((data) => data !== d),
-    }));
-  };
-
-  handleCircleClick = (clickedDataPoint) => {
-    const { selected_data } = this.state;
-    const isAlreadySelected = selected_data.some(
-      (selected) => selected.Tweets === clickedDataPoint.Tweets
-    );
-
-    if (isAlreadySelected) {
-      const updatedSelectedData = selected_data.filter(
-        (selected) => selected.Tweets !== clickedDataPoint.Tweets
-      );
-      this.setState({ selected_data: updatedSelectedData });
-    } else {
-      this.setState({ selected_data: [...selected_data, clickedDataPoint] });
-    }
+    
+    // Create scales
+    const x = d3.scaleBand()
+      .domain(modelData.map(d => d.date))
+      .range([0, width])
+      .padding(0.1);
+    
+    const y = d3.scaleLinear()
+      .domain([0, d3.max(modelData, d => d.value)])
+      .nice()
+      .range([height, 0]);
+    
+    // Add X axis
+    svg.append("g")
+      .attr("transform", `translate(0,${height})`)
+      .call(d3.axisBottom(x))
+      .selectAll("text")
+      .style("text-anchor", "end")
+      .attr("dx", "-.8em")
+      .attr("dy", ".15em")
+      .attr("transform", "rotate(-45)");
+    
+    // Add Y axis
+    svg.append("g")
+      .call(d3.axisLeft(y));
+    
+    // Add bars
+    svg.selectAll(".bar")
+      .data(modelData)
+      .join("rect")
+      .attr("class", "bar")
+      .attr("x", d => x(d.date))
+      .attr("y", d => y(d.value))
+      .attr("width", x.bandwidth())
+      .attr("height", d => height - y(d.value))
+      .attr("fill", modelColors[model]);
+    
+    // Update tooltip position
+    this.updateTooltipPosition(event);
   }
 
-  renderSelectedTweets = () => {
-    const { selected_data, hoveredDataPoints, sentimentColors } = this.state;
-
-    const combinedData = [...selected_data, ...hoveredDataPoints];
-    const uniqueData = combinedData.filter((item, index, self) =>
-      index === self.findIndex((t) => (
-        t.Tweets === item.Tweets
-      ))
-    );
-
-    if (uniqueData.length === 0) {
-      return <p>No tweets selected or hovered.</p>;
+  updateTooltipPosition = (event) => {
+    const tooltip = d3.select(".tooltip");
+    
+    // Get tooltip dimensions
+    const tooltipNode = tooltip.node();
+    const tooltipWidth = tooltipNode.offsetWidth;
+    const tooltipHeight = tooltipNode.offsetHeight;
+    
+    // Get page dimensions
+    const pageWidth = window.innerWidth;
+    const pageHeight = window.innerHeight;
+    
+    // Calculate position to ensure tooltip stays in viewport
+    let left = event.pageX + 10;
+    let top = event.pageY + 10;
+    
+    // Adjust if tooltip would go off right edge
+    if (left + tooltipWidth > pageWidth - 10) {
+      left = event.pageX - tooltipWidth - 10;
     }
-
-    return (
-      <ul>
-        {uniqueData.map((tweet) => (
-          <li key={tweet.Tweets}>
-            <span style={{ color: sentimentColors[tweet.PredictedSentiment.toLowerCase()] || "black" }}>
-              {tweet.Tweets}
-            </span>
-          </li>
-        ))}
-      </ul>
-    );
+    
+    // Adjust if tooltip would go off bottom edge
+    if (top + tooltipHeight > pageHeight - 10) {
+      top = event.pageY - tooltipHeight - 10;
+    }
+    
+    // Ensure tooltip doesn't go off left or top edge
+    left = Math.max(10, left);
+    top = Math.max(10, top);
+    
+    // Update tooltip position
+    tooltip
+      .style("left", left + "px")
+      .style("top", top + "px");
   }
 
   render() {
     return (
-      <div>
+      <div className="app-container">
+        <h1>LLM Hashtag Usage Over Time</h1>
         <FileUpload set_data={this.set_data}></FileUpload>
-        <div className="parent">
-          <div className="child1 item">
-            <h2>Projected Tweets</h2>
-            <svg ref={this.svgRef}></svg>
-          </div>
-          <div className="child2 item">
-            <h2>Selected Tweets</h2>
-            {this.renderSelectedTweets()}
-          </div>
+        <div className="visualization-container">
+          <svg ref={this.svgRef} className="streamgraph"></svg>
+          <div ref={this.legendRef} className="legend"></div>
         </div>
       </div>
     );

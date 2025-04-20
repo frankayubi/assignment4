@@ -2,41 +2,84 @@ import React, { Component } from 'react';
 import * as d3 from 'd3';
 
 class FileUpload extends Component {
-  state = { file: null };
+  state = { 
+    file: null,
+    error: null
+  };
 
   handleFileSubmit = (e) => {
-    e.preventDefault(); // Prevent form from actually submitting
-    if (this.state.file) { // Check if a file has been uploaded
-      const reader = new FileReader(); // Create a new FileReader object
-      reader.onload = (e) => { // Define the onload event handler
-        const csvText = e.target.result; // Get the CSV text from the file
-        const blob = new Blob([csvText], { type: 'text/csv' }); // Create a Blob from the CSV text
-        const url = URL.createObjectURL(blob); // Create a URL for the Blob
+    e.preventDefault();
+    if (this.state.file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const csvText = e.target.result;
+        const blob = new Blob([csvText], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
 
-        d3.csv(url).then((data) => { // Use d3.csv to parse the CSV data (asynchronously)
-          const formattedData = data.map(d => ({ // Format the data
-            Tweets: d.Tweets,
-            PredictedSentiment: d.PredictedSentiment,
-            "Dimension 1": parseFloat(d["Dimension 1"]),
-            "Dimension 2": parseFloat(d["Dimension 2"]),
-          }));
-          this.props.set_data(formattedData); // Pass the formatted data to the parent component
-          URL.revokeObjectURL(url); // Release the Blob URL to prevent memory leaks
-        }).catch(console.error); // Handle any errors during CSV parsing
+        d3.csv(url).then((data) => {
+          // Validate the CSV format
+          const requiredColumns = ['Date', 'GPT-4', 'Gemini', 'PaLM-2', 'Claude', 'LLaMA-3.1'];
+          const headers = Object.keys(data[0]);
+          const missingColumns = requiredColumns.filter(col => !headers.includes(col));
+          
+          if (missingColumns.length > 0) {
+            this.setState({ 
+              error: `Missing required columns: ${missingColumns.join(', ')}` 
+            });
+            return;
+          }
+
+          // Format data: ensure numeric values are parsed as numbers
+          const formattedData = data.map(d => {
+            const formattedRow = { Date: d.Date };
+            requiredColumns.slice(1).forEach(model => {
+              formattedRow[model] = +d[model]; // Convert to number
+            });
+            return formattedRow;
+          });
+
+          // Pass the formatted data to parent component
+          this.props.set_data(formattedData);
+          this.setState({ error: null });
+          URL.revokeObjectURL(url);
+        }).catch(error => {
+          console.error("Error parsing CSV:", error);
+          this.setState({ error: "Error parsing CSV file. Please check the format." });
+        });
       };
-      reader.readAsText(this.state.file); // Read the selected file as text
+      reader.readAsText(this.state.file);
+    } else {
+      this.setState({ error: "Please select a file first." });
     }
   };
 
-  render = () => (
-    <div style={{ backgroundColor: "#f0f0f0", padding: 20 }}>
-      <h2>Upload a CSV File</h2>
-      <form onSubmit={this.handleFileSubmit}>
-        <input type="file" accept=".csv" onChange={(e) => this.setState({ file: e.target.files[0] })} />
-        <button type="submit">Upload</button>
-      </form>
-    </div>
-  );
+  handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      this.setState({ file, error: null });
+    }
+  };
+
+  render() {
+    return (
+      <div className="upload-container">
+        <h2>Upload a CSV File</h2>
+        <p>Upload a CSV file containing hashtag usage data for LLM models (Date, GPT-4, Gemini, PaLM-2, Claude, LLaMA-3.1)</p>
+        <form onSubmit={this.handleFileSubmit}>
+          <input 
+            type="file" 
+            accept=".csv" 
+            onChange={this.handleFileChange} 
+            className="file-input"
+          />
+          <button type="submit" className="upload-button">Upload</button>
+        </form>
+        {this.state.error && (
+          <div className="error-message">{this.state.error}</div>
+        )}
+      </div>
+    );
+  }
 }
 
 export default FileUpload;
